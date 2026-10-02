@@ -1,25 +1,39 @@
-# Python
+# Python 字节码
 __pycache__/
 *.py[cod]
 *$py.class
-*.egg-info/
-.eggs/
+*.so
+
+# 打包 / 分发
+.Python
 build/
 dist/
+*.egg-info/
+.eggs/
 *.spec.bak
+# 注意：lime.spec 是本项目的构建配置，需要纳入版本控制，勿用 *.spec 通配忽略
 
 # 虚拟环境
 .venv/
 venv/
 env/
+ENV/
 
-# 测试 / 缓存
+# 测试 / 类型检查 / 覆盖率
 .pytest_cache/
 .coverage
+.coverage.*
 htmlcov/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
 
 # 临时探针脚本
 temp_*.py
+
+# 日志 / 环境变量
+*.log
+.env
 
 # 系统 / 编辑器
 Thumbs.db

@@ -1,5 +1,7 @@
 # lime
 
+> 一个新手用 AI 写的小玩具级别代码编辑器，不喜勿喷
+
 Python + PyQt6 编写的轻量桌面代码编辑器。语法高亮由 Pygments 提供，
 AI 能力对接本地 Ollama（`http://127.0.0.1:11434`，数据不出本机），
 配置通过 `QSettings` 持久化。
@@ -131,8 +133,12 @@ lime/
 
 ## 架构约定
 
-- 可脱离 GUI 测试的核心逻辑（配置、命令构造、正则、ANSI 清理、HTTP 客户端）
+- 可脱离 GUI 测试的核心逻辑（配置、命令构造、正则、ANSI 清理、HTTP 客户端、LSP 协议）
   都是普通类/纯函数；
 - 网络与长任务通过 `QThread`/`QProcess` 异步执行，不阻塞 UI；
 - 模块间通过 Qt 信号解耦（如 `FileBrowser.file_open_requested` →
   `TabManager.open_file`）。
+
+## 许可证
+
+[GPL-3.0](LICENSE)
