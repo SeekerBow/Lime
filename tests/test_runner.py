@@ -17,7 +17,7 @@ from lime.runner.runner import (
     compiled_shell_line,
     supported_extensions,
 )
-from tests.conftest import run_event_loop_until
+from tests.conftest import pump, run_event_loop_until, wait_for
 
 HAS_JAVAC = shutil.which("javac") is not None
 HAS_GCC = shutil.which("gcc") is not None
@@ -102,8 +102,25 @@ def test_windows_c_family_plan_batch(source, compiler):
     batch = plan.command[2]
     content = open(batch, encoding="mbcs").read()
     assert f"{compiler} -static" in content
+    # 源文件名与产物路径必须带双引号（防止空格路径出错）
+    assert f'{compiler} -static "{source}" -o "' in content
     assert "main.exe" in content
+    assert "\\main.exe\"" in content  # 产物路径被双引号包裹
     assert "if errorlevel 1 exit /b 1" in content
+    cleanup_artifacts(plan.cleanup)
+
+
+@pytest.mark.skipif(not IS_WINDOWS, reason="Windows bat 计划测试")
+def test_windows_batch_quotes_paths_with_spaces():
+    plan = build_run_plan(os.path.join(r"C:\my proj", "my file.cpp"))
+    batch = plan.command[2]
+    content = open(batch, encoding="mbcs").read()
+    assert 'g++ -static "my file.cpp" -o "' in content
+    assert r"my file.exe" in content
+    # 运行行的产物路径同样被引号包裹
+    assert any(line.strip().startswith('"') and line.strip().endswith('"')
+               for line in content.splitlines() if "my file.exe" in line)
+    assert plan.display.startswith('g++ -static "my file.cpp" -o "')
     cleanup_artifacts(plan.cleanup)
 
 
@@ -195,6 +212,74 @@ def test_run_c_with_spaces_in_path(qapp, tmp_path):
     assert "spaced_token_55" in output
 
 
+@pytest.mark.skipif(not IS_WINDOWS or not HAS_GPP, reason="Windows + g++")
+def test_run_cpp_with_spaces_in_filename(qapp, tmp_path):
+    # 目录名与文件名都含空格，验证引号生效、-static 产物可直接运行
+    project = tmp_path / "dir with spaces"
+    project.mkdir()
+    source = project / "hello world.cpp"
+    source.write_text(
+        "#include <iostream>\n"
+        "int main() { std::cout << \"spaced_file_token_55\" << std::endl; "
+        "return 0; }\n",
+        encoding="utf-8",
+    )
+    _, output, result = _run_and_collect(source)
+    assert result["code"] == 0, result
+    assert "spaced_file_token_55" in output
+
+
+@pytest.mark.skipif(not IS_WINDOWS or not HAS_GPP, reason="Windows + g++")
+def test_run_cpp_cin_interactive_input(qapp, tmp_path):
+    # 回归：程序 cin 等待输入时必须能通过 runner.send_input 喂入数据，
+    # 而不是永久卡住
+    source = tmp_path / "ask.cpp"
+    source.write_text(
+        "#include <iostream>\n"
+        "int main() { int a = 0, b = 0; "
+        "std::cin >> a >> b; "
+        "std::cout << \"SUM_IS_\" << a + b << std::endl; return 0; }\n",
+        encoding="utf-8",
+    )
+    runner = CodeRunner()
+    output: list[str] = []
+    runner.output_emitted.connect(output.append)
+    assert runner.start(str(source)) is True
+    try:
+        # 等编译完成、程序开始等待输入
+        pump(1200)
+        assert runner.send_input("20 22\r\n") is True
+        assert wait_for(lambda: not runner.is_running(), timeout_ms=30000)
+        assert "SUM_IS_42" in "".join(output)
+    finally:
+        runner.stop()
+
+
+def test_run_python_input_interactive(qapp, tmp_path):
+    # 解释型程序的 input() 同样要能读到 stdin
+    newline = "\r\n" if IS_WINDOWS else "\n"
+    script = tmp_path / "ask.py"
+    script.write_text(
+        "v = input()\nprint('PY_ECHO_' + v)\n",
+        encoding="utf-8",
+    )
+    runner = CodeRunner()
+    output: list[str] = []
+    runner.output_emitted.connect(output.append)
+    assert runner.start(str(script)) is True
+    try:
+        pump(500)
+        assert runner.send_input("lime_stdin_token_55" + newline) is True
+        assert wait_for(lambda: not runner.is_running(), timeout_ms=20000)
+        assert "PY_ECHO_lime_stdin_token_55" in "".join(output)
+    finally:
+        runner.stop()
+
+
+def test_send_input_without_running_process_returns_false():
+    assert CodeRunner().send_input("x\n") is False
+
+
 def test_run_python_script(qapp, tmp_path):
     script = tmp_path / "hello.py"
     script.write_text(
@@ -243,3 +328,22 @@ def test_output_panel_runs_file(qapp, tmp_path):
     run_event_loop_until(panel.runner.run_finished, timeout_ms=20000)
     assert "panel_output_token" in panel.text()
     assert "退出码 0" in panel.status_label.text()
+
+
+def test_output_panel_input_box_feeds_running_process(qapp, tmp_path):
+    # 回归：运行中输入框可用，回车把内容写入子进程 stdin；结束后禁用
+    newline = "\r\n" if IS_WINDOWS else "\n"
+    script = tmp_path / "panel_ask.py"
+    script.write_text("v = input()\nprint('PANEL_ECHO_' + v)\n", encoding="utf-8")
+    panel = OutputPanel()
+    assert panel.run_file(str(script)) is True
+    assert panel.input_edit.isEnabled() is True
+    try:
+        pump(500)
+        panel.input_edit.setText("panel_stdin_token_55")
+        panel._send_input()
+        assert wait_for(lambda: not panel.runner.is_running(), timeout_ms=20000)
+        assert "PANEL_ECHO_panel_stdin_token_55" in panel.text()
+    finally:
+        panel.runner.stop()
+    assert panel.input_edit.isEnabled() is False

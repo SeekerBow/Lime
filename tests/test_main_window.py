@@ -1,14 +1,20 @@
 """ui.main_window 集成测试：菜单、联动、布局、关闭持久化。"""
 
 import pytest
-from PyQt6.QtWidgets import QMessageBox
+from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtTest import QTest
 
 from lime.editor import tab_manager as tab_module
 from lime.ui.main_window import MainWindow
 
 
 @pytest.fixture
-def window(qapp, settings):
+def window(qapp, settings, monkeypatch):
+    # MainWindow 创建 AI 侧边栏时会异步发起真实网络请求拉取模型列表，
+    # 测试中禁掉，避免后台 QThread 在窗口回收时引发崩溃
+    from lime.ai.ai_sidebar import AISidebar
+
+    monkeypatch.setattr(AISidebar, "refresh_models", lambda self: None)
     win = MainWindow(settings)
     return win
 
@@ -75,6 +81,22 @@ def test_cursor_status_updates(window):
     cursor.setPosition(7)
     editor.setTextCursor(cursor)
     assert "行 2" in window.cursor_label.text()
+
+
+def test_switching_to_terminal_tab_starts_shell_and_focuses(window):
+    # 回归：只点击“终端”标签头就应能直接打字——
+    # 切到终端标签时必须启动 Shell 并把焦点送进终端控件
+    window.show()
+    QTest.qWait(100)
+    try:
+        assert window.terminal.is_running() is False
+        window.bottom_tabs.setCurrentWidget(window.terminal)
+        QTest.qWait(500)
+        assert window.terminal.is_running() is True
+        # 焦点落在终端底部的命令输入框中
+        assert QApplication.focusWidget() is window.terminal.input_edit
+    finally:
+        window.terminal.stop_shell()
 
 
 def test_run_unsaved_prompts_save_cancel(window, monkeypatch):

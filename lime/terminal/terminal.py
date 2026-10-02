@@ -11,9 +11,15 @@ import os
 import re
 import sys
 
-from PyQt6.QtCore import Qt, QProcess
+from PyQt6.QtCore import Qt, QProcess, pyqtSignal
 from PyQt6.QtGui import QFont, QKeyEvent, QTextCursor
-from PyQt6.QtWidgets import QPlainTextEdit, QWidget
+from PyQt6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QPlainTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ..core.settings import Settings
 
@@ -24,6 +30,30 @@ _OSC_RE = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 # 单字节转义（如 ESC = 、ESC D 换行）
 _SINGLE_RE = re.compile(r"\x1b[@-Z\\-_]")
 _BELL_RE = re.compile(r"\x07")
+
+
+def encode_process_input(text: str) -> bytes:
+    """编码发往子进程 stdin 的用户输入。
+
+    Windows 管道没有控制台代码页上下文，教学场景的 C/C++ ``cin``、
+    Python ``input()`` 普遍按系统 ANSI 代码页（中文系统为 GBK/CP936）
+    解析字节，因此 Windows 优先 ``mbcs``；POSIX 优先 UTF-8。
+    按候选链严格编码，latin-1 兜底。
+    """
+    if sys.platform.startswith("win"):
+        candidates = ["mbcs", "cp936", locale.getpreferredencoding(False), "utf-8"]
+    else:
+        candidates = ["utf-8", locale.getpreferredencoding(False)]
+    tried: set[str] = set()
+    for encoding in candidates:
+        if not encoding or encoding in tried:
+            continue
+        tried.add(encoding)
+        try:
+            return text.encode(encoding)
+        except (UnicodeEncodeError, LookupError):
+            continue
+    return text.encode("latin-1", errors="replace")
 
 
 def decode_process_bytes(data: bytes) -> str:
@@ -77,22 +107,88 @@ def default_shell() -> tuple[str, list[str]]:
     return shell, ["-i"]
 
 
-class TerminalWidget(QPlainTextEdit):
-    """简易嵌入式终端。"""
+class TerminalView(QPlainTextEdit):
+    """终端只读输出区；点击它时把焦点交还给下方输入框。"""
+
+    clicked = pyqtSignal()
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802 (Qt API)
+        super().mousePressEvent(event)
+        self.clicked.emit()
+
+
+class TerminalInputEdit(QPlainTextEdit):
+    """终端命令输入框：Enter 发送，Shift/Ctrl+Enter 在框内换行。"""
+
+    submitted = pyqtSignal()
+    interrupt_requested = pyqtSignal()
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802 (Qt API)
+        key = event.key()
+        modifiers = event.modifiers()
+        ctrl = bool(modifiers & Qt.KeyboardModifier.ControlModifier)
+
+        # Ctrl+C：有选中文字时执行复制，否则向 Shell 发送中断（Ctrl+C）
+        if ctrl and key == Qt.Key.Key_C and not self.textCursor().hasSelection():
+            self.interrupt_requested.emit()
+            event.accept()
+            return
+
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            # Shift/Ctrl+Enter 走默认行为（插入换行），普通 Enter 发送
+            if not (
+                modifiers & Qt.KeyboardModifier.ShiftModifier
+                or modifiers & Qt.KeyboardModifier.ControlModifier
+            ):
+                self.submitted.emit()
+                event.accept()
+                return
+        super().keyPressEvent(event)
+
+
+class TerminalWidget(QWidget):
+    """嵌入式终端：上方只读输出区 + 下方命令输入框。"""
 
     def __init__(self, settings: Settings | None = None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.settings = settings
-        self.setReadOnly(True)
-        self.setFont(QFont("Consolas", 10))
-        self.setUndoRedoEnabled(False)
-        self.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
-        self.document().setMaximumBlockCount(10000)
+        font = QFont("Consolas", 10)
+
+        self.view = TerminalView(self)
+        self.view.setReadOnly(True)
+        self.view.setFont(font)
+        self.view.setUndoRedoEnabled(False)
+        self.view.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+        self.view.document().setMaximumBlockCount(10000)
+        self.view.clicked.connect(self.setFocus)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.view)
+
+        input_row = QHBoxLayout()
+        input_row.setContentsMargins(4, 2, 4, 4)
+        input_row.addWidget(QLabel("输入"))
+        self.input_edit = TerminalInputEdit(self)
+        self.input_edit.setFont(font)
+        self.input_edit.setUndoRedoEnabled(False)
+        self.input_edit.setEnabled(False)
+        self.input_edit.setPlaceholderText(
+            "输入命令后按回车发送；Shift+回车换行（多行内容将一起发送）"
+        )
+        # 固定约 3 行高度，容纳多行待发命令
+        line_height = self.input_edit.fontMetrics().lineSpacing()
+        self.input_edit.setFixedHeight(line_height * 3 + 12)
+        input_row.addWidget(self.input_edit, 1)
+        layout.addLayout(input_row)
+
+        self.input_edit.submitted.connect(self._submit_input)
+        self.input_edit.interrupt_requested.connect(lambda: self.send_text("\x03"))
 
         self.process = QProcess(self)
         self.process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
         self.process.readyReadStandardOutput.connect(self._read_output)
-        self.process.started.connect(lambda: self._append_raw("[终端已启动]\n"))
+        self.process.started.connect(self._on_started)
         self.process.finished.connect(self._on_finished)
 
         self._newline = "\r\n" if sys.platform.startswith("win") else "\n"
@@ -123,6 +219,7 @@ class TerminalWidget(QPlainTextEdit):
     def restart_shell(self) -> None:
         self.stop_shell()
         self.clear()
+        self.input_edit.clear()
         self.start_shell()
 
     def is_running(self) -> bool:
@@ -131,7 +228,7 @@ class TerminalWidget(QPlainTextEdit):
     def send_text(self, text: str) -> None:
         """向 Shell 发送原始文本（不保证带回车）。"""
         if self.is_running():
-            self.process.write(text.encode("utf-8", errors="replace"))
+            self.process.write(encode_process_input(text))
 
     def send_command(self, command: str) -> None:
         """发送一整条命令并回车。"""
@@ -139,6 +236,30 @@ class TerminalWidget(QPlainTextEdit):
 
     def clear_terminal(self) -> None:
         self.clear()
+
+    # ---- 与旧接口/外部调用保持兼容 --------------------------------------
+    def toPlainText(self) -> str:  # noqa: N802 (与 Qt 命名一致)
+        return self.view.toPlainText()
+
+    def clear(self) -> None:
+        self.view.clear()
+
+    def setFocus(self, reason=Qt.FocusReason.OtherFocusReason) -> None:  # noqa: N802
+        # 焦点一律进入命令输入框
+        self.input_edit.setFocus()
+
+    # ---- 输入框提交 ------------------------------------------------------
+    def _submit_input(self) -> None:
+        if not self.is_running():
+            return
+        # 统一换行：多行内容按行依次发送（Shell 会逐行执行），末尾补回车
+        text = self.input_edit.toPlainText()
+        text = text.replace("\r\n", "\n").replace("\r", "\n").strip("\n")
+        if text:
+            self.send_text(text.replace("\n", self._newline) + self._newline)
+        else:
+            self.send_text(self._newline)
+        self.input_edit.clear()
 
     # ---- 输出 ------------------------------------------------------------
     def _read_output(self) -> None:
@@ -151,63 +272,18 @@ class TerminalWidget(QPlainTextEdit):
         cleaned = strip_ansi(text)
         if not cleaned:
             return
-        cursor = self.textCursor()
+        cursor = self.view.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
         cursor.insertText(cleaned)
-        self.setTextCursor(cursor)
-        self.ensureCursorVisible()
+        self.view.setTextCursor(cursor)
+        self.view.ensureCursorVisible()
+
+    def _on_started(self) -> None:
+        self._append_raw("[终端已启动]\n")
+        self.input_edit.setEnabled(True)
+        self.input_edit.setFocus()
 
     def _on_finished(self, code: int, _status) -> None:
         self._append_raw(f"\n[终端已退出，退出码 {code}]\n")
-
-    # ---- 键盘转发 --------------------------------------------------------
-    def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802 (Qt API)
-        if not self.is_running():
-            return
-        key = event.key()
-        modifiers = event.modifiers()
-        ctrl = bool(modifiers & Qt.KeyboardModifier.ControlModifier)
-
-        if ctrl and key == Qt.Key.Key_C:
-            self.send_text("\x03")
-            return
-        if ctrl and key == Qt.Key.Key_D:
-            self.send_text("\x04")
-            return
-        if ctrl and key in (Qt.Key.Key_Plus, Qt.Key.Key_Equal):
-            self.zoomIn(1)
-            return
-        if ctrl and key == Qt.Key.Key_Minus:
-            self.zoomOut(1)
-            return
-
-        special = {
-            Qt.Key.Key_Return: self._newline,
-            Qt.Key.Key_Enter: self._newline,
-            Qt.Key.Key_Backspace: "\x08",
-            Qt.Key.Key_Tab: "\t",
-            Qt.Key.Key_Escape: "\x1b",
-            Qt.Key.Key_Up: "\x1b[A",
-            Qt.Key.Key_Down: "\x1b[B",
-            Qt.Key.Key_Right: "\x1b[C",
-            Qt.Key.Key_Left: "\x1b[D",
-            Qt.Key.Key_Home: "\x1b[H",
-            Qt.Key.Key_End: "\x1b[F",
-            Qt.Key.Key_Delete: "\x1b[3~",
-            Qt.Key.Key_PageUp: "\x1b[5~",
-            Qt.Key.Key_PageDown: "\x1b[6~",
-        }
-        if key in special:
-            self.send_text(special[key])
-            return
-
-        text = event.text()
-        if text and not ctrl:
-            self.send_text(text)
-
-    # ---- 鼠标：保留选择能力，但输入时光标自动回到底部 ----------------------
-    def focusInEvent(self, event) -> None:  # noqa: N802 (Qt API)
-        super().focusInEvent(event)
-        cursor = self.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        self.setTextCursor(cursor)
+        self.input_edit.setEnabled(False)
+        self.input_edit.clear()

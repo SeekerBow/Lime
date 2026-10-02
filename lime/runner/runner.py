@@ -18,6 +18,8 @@ from typing import Callable, Optional
 
 from PyQt6.QtCore import QObject, QProcess, pyqtSignal
 
+from ..terminal.terminal import encode_process_input
+
 IS_WINDOWS = sys.platform.startswith("win")
 
 #: 扩展名 -> 解释型命令行生成函数
@@ -146,10 +148,11 @@ def _display_line(path: str, language: str, output_dir: str) -> str:
     source = os.path.basename(path)
     stem = os.path.splitext(source)[0]
     if language == "java":
-        return f"javac {source} && java {stem}"
+        return f'javac -encoding UTF-8 "{source}" && java "{stem}"'
     compiler = "gcc" if language == "c" else "g++"
     exe = os.path.join(output_dir, stem + (".exe" if IS_WINDOWS else ""))
-    return f"{compiler} {source} && {exe}"
+    static = "-static " if IS_WINDOWS else ""
+    return f'{compiler} {static}"{source}" -o "{exe}" && "{exe}"'
 
 
 def build_run_plan(path: str) -> Optional[RunPlan]:
@@ -244,6 +247,16 @@ class CodeRunner(QObject):
     def stop(self) -> None:
         if self.is_running():
             self.process.kill()
+
+    def send_input(self, text: str) -> bool:
+        """向正在运行的子进程 stdin 写入用户输入（支持 cin/scanf/input()）。
+
+        Windows 上编译型程序由 ``cmd /c build.bat`` 启动，exe 会继承
+        cmd 的 stdin 管道，因此写入同样到达被运行的程序。
+        """
+        if not self.is_running():
+            return False
+        return self.process.write(encode_process_input(text)) > 0
 
     # ---- 内部槽 ----------------------------------------------------------
     def _read_output(self) -> None:

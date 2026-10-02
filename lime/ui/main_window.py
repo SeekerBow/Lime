@@ -266,8 +266,12 @@ class MainWindow(QMainWindow):
         self.terminal.restart_shell()
 
     def _on_bottom_tab_changed(self, index: int) -> None:
-        if self.bottom_tabs.widget(index) is self.terminal and not self.terminal.is_running():
-            self.terminal.start_shell()
+        if self.bottom_tabs.widget(index) is self.terminal:
+            if not self.terminal.is_running():
+                self.terminal.start_shell()
+            # 切换到终端标签即把焦点送进终端，保证用户可以直接打字
+            # （否则焦点停在标签栏，按键无法到达 Shell）
+            self.terminal.setFocus()
 
     # ---- 标签/编辑器联动 --------------------------------------------------
     def _on_file_tracked(self, path: str) -> None:
