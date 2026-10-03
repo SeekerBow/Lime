@@ -1,3 +1,9 @@
+# Copyright (C) 2026 SeekerBow
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
 """Ollama 后台线程，避免网络请求阻塞 UI。"""
 
 from __future__ import annotations

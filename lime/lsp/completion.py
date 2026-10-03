@@ -1,3 +1,9 @@
+# Copyright (C) 2026 SeekerBow
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
 """基于 LSP 的智能补全：无焦点弹窗 + 编辑器控制器。
 
 - :class:`CompletionPopup`：ToolTip 型无焦点列表，位置跟随光标

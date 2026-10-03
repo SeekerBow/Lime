@@ -1,3 +1,9 @@
+# Copyright (C) 2026 SeekerBow
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
 """代码编辑器控件：行号栏、当前行高亮、可配置缩进、诊断标记。"""
 
 from __future__ import annotations
@@ -141,6 +147,9 @@ class CodeEditor(QPlainTextEdit):
         palette.setColor(QPalette.ColorRole.Highlight, QColor(mix_color(background, foreground, 0.28)))
         palette.setColor(QPalette.ColorRole.HighlightedText, fg)
         self.setPalette(palette)
+        # viewport 是独立的子控件，且全局样式表重抛光时 QStyleSheetStyle
+        # 会用缓存的旧 palette 覆盖它，必须显式设置才能随主题切换
+        self.viewport().setPalette(palette)
         self.line_number_area.setPalette(palette)
         self.line_number_area.update()
         self._highlight_current_line()

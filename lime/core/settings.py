@@ -1,3 +1,9 @@
+# Copyright (C) 2026 SeekerBow
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
 """设置持久化：对 :class:`QSettings` 的类型安全封装。
 
 默认写入系统持久化后端（Windows 注册表 / macOS plist / Linux ini），

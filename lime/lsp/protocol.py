@@ -1,3 +1,9 @@
+# Copyright (C) 2026 SeekerBow
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
 """LSP 协议的纯逻辑部分：JSON-RPC 帧、URI 转换、数据结构、服务器注册。
 
 不依赖 Qt、不启动进程，可完全离线单测。

@@ -1,3 +1,9 @@
+# Copyright (C) 2026 SeekerBow
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
 """单个语言服务器进程的 LSP 连接。
 
 用 :class:`QProcess` 承载服务器（clangd …），通过 stdin/stdout 交换

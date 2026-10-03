@@ -1,3 +1,9 @@
+# Copyright (C) 2026 SeekerBow
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
 """ui.main_window 集成测试：菜单、联动、布局、关闭持久化。"""
 
 import pytest
@@ -37,6 +43,43 @@ def test_actions_have_shortcuts(window):
     assert "CTRL" in window.act_save.shortcut().toString().upper()
     assert window.act_run.shortcut().toString() == "F5"
     assert "CTRL" in window.act_find.shortcut().toString().upper()
+
+
+def test_zoom_actions_have_expected_shortcuts(window):
+    in_keys = [s.toString() for s in window.act_zoom_in.shortcuts()]
+    out_keys = [s.toString() for s in window.act_zoom_out.shortcuts()]
+    assert any("Up" in s for s in in_keys)
+    assert any("=" in s or "+" in s for s in in_keys)
+    assert any("Down" in s for s in out_keys)
+    assert any("-" in s for s in out_keys)
+
+
+def test_zoom_in_out_changes_editor_and_terminal_font(window, settings):
+    start = settings.font_size
+    window._zoom_font(+1)
+    assert settings.font_size == start + 1
+    assert window.tabs.current_editor().font().pointSize() == start + 1
+    assert window.terminal.input_edit.font().pointSize() == start + 1
+
+    window._zoom_font(-1)
+    assert settings.font_size == start
+    assert window.tabs.current_editor().font().pointSize() == start
+
+
+def test_zoom_clamped_to_bounds(window, settings):
+    for _ in range(100):
+        window._zoom_font(+1)
+    assert settings.font_size == MainWindow.FONT_SIZE_MAX
+    for _ in range(100):
+        window._zoom_font(-1)
+    assert settings.font_size == MainWindow.FONT_SIZE_MIN
+
+
+def test_zoom_reset_restores_default(window, settings):
+    window._zoom_font(+3)
+    window._reset_font_size()
+    assert settings.font_size == MainWindow.FONT_SIZE_DEFAULT
+    assert window.tabs.current_editor().font().pointSize() == MainWindow.FONT_SIZE_DEFAULT
 
 
 def test_open_file_via_file_browser_signal(window, tmp_path):

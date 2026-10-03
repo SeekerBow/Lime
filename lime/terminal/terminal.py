@@ -1,3 +1,9 @@
+# Copyright (C) 2026 SeekerBow
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
 """集成终端：用 :class:`QProcess` 托管本机交互式 Shell。
 
 键盘事件被转发到子进程，输出回流到只读文本区。ANSI 转义序列在显示前
@@ -152,7 +158,9 @@ class TerminalWidget(QWidget):
     def __init__(self, settings: Settings | None = None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.settings = settings
-        font = QFont("Consolas", 10)
+        family = settings.font_family if settings else "Consolas"
+        size = settings.font_size if settings else 10
+        font = QFont(family, size)
 
         self.view = TerminalView(self)
         self.view.setReadOnly(True)
@@ -236,6 +244,22 @@ class TerminalWidget(QWidget):
 
     def clear_terminal(self) -> None:
         self.clear()
+
+    def set_font_size(self, size: int) -> None:
+        """仅调整字号（输出区与命令输入框）。"""
+        font = self.input_edit.font()
+        font.setPointSize(int(size))
+        self._apply_font(font)
+
+    def apply_font(self, family: str, size: int) -> None:
+        """设置字体族与字号。"""
+        self._apply_font(QFont(family, int(size)))
+
+    def _apply_font(self, font: QFont) -> None:
+        self.view.setFont(font)
+        self.input_edit.setFont(font)
+        line_height = self.input_edit.fontMetrics().lineSpacing()
+        self.input_edit.setFixedHeight(line_height * 3 + 12)
 
     # ---- 与旧接口/外部调用保持兼容 --------------------------------------
     def toPlainText(self) -> str:  # noqa: N802 (与 Qt 命名一致)

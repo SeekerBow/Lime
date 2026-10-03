@@ -1,3 +1,9 @@
+# Copyright (C) 2026 SeekerBow
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
 """LSP 端到端测试：假服务器、（可选）真实 clangd、补全/诊断 UI。"""
 
 from __future__ import annotations

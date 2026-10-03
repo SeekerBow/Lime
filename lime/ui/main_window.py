@@ -1,3 +1,9 @@
+# Copyright (C) 2026 SeekerBow
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
 """主窗口：组装编辑器、文件浏览器、查找条、输出/终端面板与 AI 侧边栏。"""
 
 from __future__ import annotations
@@ -7,6 +13,7 @@ import os
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction, QKeySequence, QTextCursor
 from PyQt6.QtWidgets import (
+    QApplication,
     QFileDialog,
     QLabel,
     QMainWindow,
@@ -20,6 +27,7 @@ from PyQt6.QtWidgets import (
 
 from ..ai.ai_sidebar import AISidebar
 from ..core.settings import Settings
+from ..cph.test_panel import CphPanel
 from ..editor.tab_manager import TabManager
 from ..filebrowser.file_browser import FileBrowser
 from ..lsp.completion import CompletionController
@@ -29,6 +37,7 @@ from ..runner.output_panel import OutputPanel
 from ..runner.runner import supported_extensions
 from ..search.find_replace import FindReplaceBar
 from ..terminal.terminal import TerminalWidget
+from .app_theme import apply_app_theme
 from .settings_dialog import SettingsDialog
 
 
@@ -47,6 +56,7 @@ class MainWindow(QMainWindow):
         self.find_bar = FindReplaceBar(self)
         self.output_panel = OutputPanel(self)
         self.terminal = TerminalWidget(settings, self)
+        self.cph_panel = CphPanel(settings, self)
         self.ai_sidebar = AISidebar(settings, parent=self)
         self.lsp = LspService(settings, parent=self)
         self.problems_panel = ProblemsPanel(self)
@@ -60,6 +70,7 @@ class MainWindow(QMainWindow):
 
         self.bottom_tabs = QTabWidget()
         self.bottom_tabs.addTab(self.output_panel, "运行输出")
+        self.bottom_tabs.addTab(self.cph_panel, "样例测试")
         self.bottom_tabs.addTab(self.problems_panel, "问题")
         self.bottom_tabs.addTab(self.terminal, "终端")
 
@@ -157,9 +168,14 @@ class MainWindow(QMainWindow):
         self.act_run = QAction("运行当前文件", self)
         self.act_run.setShortcut("F5")
         self.act_stop = QAction("停止运行", self)
+        self.act_run_samples = QAction("运行样例测试", self)
+        self.act_run_samples.setShortcut("F6")
         self.act_run.triggered.connect(self.run_current)
         self.act_stop.triggered.connect(self.output_panel.runner.stop)
-        run_menu.addActions([self.act_run, self.act_stop])
+        self.act_run_samples.triggered.connect(self.run_samples)
+        run_menu.addActions(
+            [self.act_run, self.act_run_samples, self.act_stop]
+        )
 
         # 终端
         term_menu = bar.addMenu("终端(&T)")
@@ -182,6 +198,24 @@ class MainWindow(QMainWindow):
         self.act_toggle_bottom.toggled.connect(self.bottom_tabs.setVisible)
         view_menu.addActions(
             [self.act_toggle_files, self.act_toggle_ai, self.act_toggle_bottom]
+        )
+        view_menu.addSeparator()
+        self.act_zoom_in = QAction("放大字体", self)
+        self.act_zoom_in.setShortcuts(
+            [QKeySequence("Ctrl+="), QKeySequence("Ctrl++"),
+             QKeySequence("Ctrl+Up")]
+        )
+        self.act_zoom_out = QAction("缩小字体", self)
+        self.act_zoom_out.setShortcuts(
+            [QKeySequence("Ctrl+-"), QKeySequence("Ctrl+Down")]
+        )
+        self.act_zoom_reset = QAction("还原字体大小", self)
+        self.act_zoom_reset.setShortcut(QKeySequence("Ctrl+0"))
+        self.act_zoom_in.triggered.connect(lambda: self._zoom_font(+1))
+        self.act_zoom_out.triggered.connect(lambda: self._zoom_font(-1))
+        self.act_zoom_reset.triggered.connect(self._reset_font_size)
+        view_menu.addActions(
+            [self.act_zoom_in, self.act_zoom_out, self.act_zoom_reset]
         )
 
         # 设置
@@ -216,6 +250,8 @@ class MainWindow(QMainWindow):
         self.tabs.editor_created.connect(self._on_editor_created)
         self.tabs.file_opened.connect(self._on_lsp_file_opened)
         self.tabs.file_saved.connect(self._on_lsp_file_saved)
+        # 未命名文档“另存为”后标签索引不变，需要手动让样例面板重新绑定
+        self.tabs.file_saved.connect(lambda path, _old: self.cph_panel.bind(path))
         self.tabs.file_closed.connect(self.lsp.on_closed)
         self.lsp.diagnosticsReceived.connect(self._on_lsp_diagnostics)
         self.lsp.serverStatus.connect(self._on_lsp_server_status)
@@ -223,6 +259,9 @@ class MainWindow(QMainWindow):
 
         self.ai_sidebar.status_message.connect(self.statusBar().showMessage)
         self.bottom_tabs.currentChanged.connect(self._on_bottom_tab_changed)
+
+        # CPH 样例评测：评测前请求保存当前文件
+        self.cph_panel.request_save_current.connect(self._save_current_quietly)
 
     # ---- 文件操作 --------------------------------------------------------
     def open_files_dialog(self) -> None:
@@ -250,14 +289,63 @@ class MainWindow(QMainWindow):
         if not self.output_panel.run_file(path):
             self.statusBar().showMessage("该文件类型不支持一键运行", 5000)
 
+    def run_samples(self) -> None:
+        path = self.tabs.current_path()
+        if path is None:
+            # 未命名文档：先保存再评测
+            if not self.tabs.save_current():
+                return
+            path = self.tabs.current_path()
+        if not path:
+            return
+        self.bottom_tabs.setCurrentWidget(self.cph_panel)
+        self.bottom_tabs.setVisible(True)
+        self.act_toggle_bottom.setChecked(True)
+        self.cph_panel.run_all()
+
+    def _save_current_quietly(self) -> None:
+        # 评测前把编辑器中的最新代码落盘（已有路径时不弹对话框）
+        if self.tabs.current_path() is not None:
+            self.tabs.save_current()
+
+    # ---- 字体缩放 --------------------------------------------------------
+    FONT_SIZE_MIN = 8
+    FONT_SIZE_MAX = 36
+    FONT_SIZE_DEFAULT = 11
+
+    def _zoom_font(self, delta: int) -> None:
+        size = max(
+            self.FONT_SIZE_MIN,
+            min(self.FONT_SIZE_MAX, self.settings.font_size + delta),
+        )
+        if size == self.settings.font_size:
+            return
+        self.settings.font_size = size
+        self.tabs.refresh_settings()
+        self.terminal.set_font_size(size)
+        self.statusBar().showMessage(f"字号：{size}", 1500)
+
+    def _reset_font_size(self) -> None:
+        self.settings.font_size = self.FONT_SIZE_DEFAULT
+        self.tabs.refresh_settings()
+        self.terminal.set_font_size(self.FONT_SIZE_DEFAULT)
+        self.statusBar().showMessage(f"字号：{self.FONT_SIZE_DEFAULT}", 1500)
+
     # ---- 设置 ------------------------------------------------------------
     def open_settings(self) -> None:
         dialog = SettingsDialog(self.settings, self)
         if dialog.exec():
+            # 先应用全局主题：setStyleSheet 触发的重抛光会用缓存 palette
+            # 覆盖控件，因此编辑器配色必须在其后刷新
+            apply_app_theme(QApplication.instance(), self.settings.highlight_style)
             self.tabs.refresh_settings()
             self.ai_sidebar.reload_client()
             self.ai_sidebar.refresh_models()
             self.lsp.reload()
+            # 字体/高亮样式变化时同步终端
+            self.terminal.apply_font(
+                self.settings.font_family, self.settings.font_size
+            )
             self.statusBar().showMessage("设置已保存", 3000)
 
     # ---- 终端 ------------------------------------------------------------
@@ -280,6 +368,8 @@ class MainWindow(QMainWindow):
     def _on_current_tab_changed(self, _index: int) -> None:
         editor = self.tabs.current_editor()
         self.find_bar.attach(editor)
+        # 样例测试面板跟随当前文件
+        self.cph_panel.bind(self.tabs.current_path())
         if editor is None:
             self.cursor_label.setText("无编辑器")
             return

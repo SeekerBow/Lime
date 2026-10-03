@@ -1,3 +1,9 @@
+# Copyright (C) 2026 SeekerBow
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
 """LSP 服务管理层：多语言服务器、文档生命周期、防抖同步、设置联动。
 
 UI 层只需把文件的 打开/修改/保存/关闭 事件喂给 :class:`LspService`，

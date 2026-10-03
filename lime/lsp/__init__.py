@@ -1,3 +1,9 @@
+# Copyright (C) 2026 SeekerBow
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
 """lime 的 LSP（Language Server Protocol）集成。
 
 - :mod:`lime.lsp.protocol`：与 Qt/服务器无关的纯逻辑（消息帧、URI、数据类）

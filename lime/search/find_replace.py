@@ -1,3 +1,9 @@
+# Copyright (C) 2026 SeekerBow
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
 """查找替换：可独立测试的纯逻辑 + 作用于编辑器的引擎 + 工具条 UI。"""
 
 from __future__ import annotations

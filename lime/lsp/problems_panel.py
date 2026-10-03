@@ -1,3 +1,9 @@
+# Copyright (C) 2026 SeekerBow
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
 """实时诊断（Problems）面板：列出所有打开文件的 LSP 诊断，双击跳转。"""
 
 from __future__ import annotations

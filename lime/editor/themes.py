@@ -1,3 +1,9 @@
+# Copyright (C) 2026 SeekerBow
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
 """lime 内置的自定义 Pygments 主题与主题注册表。
 
 Pygments 自带 50 种样式（one-dark、nord、dracula 等），这里补充几款

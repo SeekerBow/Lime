@@ -1,3 +1,9 @@
+# Copyright (C) 2026 SeekerBow
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
 """QApplication 引导。
 
 在构造任何 :class:`~lime.core.settings.Settings` / QSettings 之前先设置
@@ -141,9 +147,12 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     # 延迟导入，避免在无显示环境导入模块时提前创建 QApplication。
     from .core.settings import Settings
+    from .ui.app_theme import apply_app_theme
     from .ui.main_window import MainWindow
 
     settings = Settings()
+    # 把编辑器配色方案应用到整个窗口（菜单/面板/对话框）
+    apply_app_theme(app, settings.highlight_style)
     window = MainWindow(settings)
     window.show()
     return app.exec()

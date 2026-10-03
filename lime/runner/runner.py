@@ -1,3 +1,9 @@
+# Copyright (C) 2026 SeekerBow
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
 """脚本运行器：把文件扩展名映射为系统命令并用 :class:`QProcess` 执行。
 
 - 解释型语言（Python/Node/…）直接一条命令启动；

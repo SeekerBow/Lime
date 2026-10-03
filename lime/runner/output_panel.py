@@ -1,3 +1,9 @@
+# Copyright (C) 2026 SeekerBow
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
 """运行输出面板：输出区 + 输入框 + 运行/停止按钮 + 状态标签。"""
 
 from __future__ import annotations

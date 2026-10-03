@@ -1,3 +1,9 @@
+# Copyright (C) 2026 SeekerBow
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
 """Pygments 与 Qt 文档模型之间的桥接层。
 
 :class:`PygmentsHighlighter` 把 Pygments lexer 的 token 流着色到
