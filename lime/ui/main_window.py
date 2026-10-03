@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction, QKeySequence, QTextCursor
@@ -27,6 +28,7 @@ from PyQt6.QtWidgets import (
 
 from ..ai.ai_sidebar import AISidebar
 from ..core.settings import Settings
+from ..cph.stress_panel import StressPanel
 from ..cph.test_panel import CphPanel
 from ..editor.tab_manager import TabManager
 from ..filebrowser.file_browser import FileBrowser
@@ -57,6 +59,7 @@ class MainWindow(QMainWindow):
         self.output_panel = OutputPanel(self)
         self.terminal = TerminalWidget(settings, self)
         self.cph_panel = CphPanel(settings, self)
+        self.stress_panel = StressPanel(settings, self)
         self.ai_sidebar = AISidebar(settings, parent=self)
         self.lsp = LspService(settings, parent=self)
         self.problems_panel = ProblemsPanel(self)
@@ -71,6 +74,7 @@ class MainWindow(QMainWindow):
         self.bottom_tabs = QTabWidget()
         self.bottom_tabs.addTab(self.output_panel, "运行输出")
         self.bottom_tabs.addTab(self.cph_panel, "样例测试")
+        self.bottom_tabs.addTab(self.stress_panel, "对拍")
         self.bottom_tabs.addTab(self.problems_panel, "问题")
         self.bottom_tabs.addTab(self.terminal, "终端")
 
@@ -170,11 +174,14 @@ class MainWindow(QMainWindow):
         self.act_stop = QAction("停止运行", self)
         self.act_run_samples = QAction("运行样例测试", self)
         self.act_run_samples.setShortcut("F6")
+        self.act_run_stress = QAction("一键对拍", self)
+        self.act_run_stress.setShortcut("F7")
         self.act_run.triggered.connect(self.run_current)
         self.act_stop.triggered.connect(self.output_panel.runner.stop)
         self.act_run_samples.triggered.connect(self.run_samples)
+        self.act_run_stress.triggered.connect(self.run_stress)
         run_menu.addActions(
-            [self.act_run, self.act_run_samples, self.act_stop]
+            [self.act_run, self.act_run_samples, self.act_run_stress, self.act_stop]
         )
 
         # 终端
@@ -262,6 +269,8 @@ class MainWindow(QMainWindow):
 
         # CPH 样例评测：评测前请求保存当前文件
         self.cph_panel.request_save_current.connect(self._save_current_quietly)
+        # 对拍：面板的“使用当前文件”按钮
+        self.stress_panel.request_current_file.connect(self._fill_stress_my)
 
     # ---- 文件操作 --------------------------------------------------------
     def open_files_dialog(self) -> None:
@@ -275,19 +284,33 @@ class MainWindow(QMainWindow):
         self.tabs.open_paths(paths)
 
     def run_current(self) -> None:
+        editor = self.tabs.current_editor()
+        if editor is None:
+            return
         path = self.tabs.current_path()
         if path is None:
-            # 未命名文档：先保存再运行
-            if not self.tabs.save_current():
+            # 未命名文档：把当前代码写入 %temp%\lime_tmp\tmp.cpp 后运行，
+            # 不打扰用户（不用保存），适合跑临时小程序
+            path = self._write_temp_cpp(editor.toPlainText())
+            if path is None:
+                self.statusBar().showMessage("无法创建临时文件", 5000)
                 return
-            path = self.tabs.current_path()
-        if not path:
-            return
         self.bottom_tabs.setCurrentWidget(self.output_panel)
         self.bottom_tabs.setVisible(True)
         self.act_toggle_bottom.setChecked(True)
         if not self.output_panel.run_file(path):
             self.statusBar().showMessage("该文件类型不支持一键运行", 5000)
+
+    def _write_temp_cpp(self, text: str) -> str | None:
+        try:
+            temp_dir = os.path.join(tempfile.gettempdir(), "lime_tmp")
+            os.makedirs(temp_dir, exist_ok=True)
+            path = os.path.join(temp_dir, "tmp.cpp")
+            with open(path, "w", encoding="utf-8", newline="") as fh:
+                fh.write(text)
+            return path
+        except OSError:
+            return None
 
     def run_samples(self) -> None:
         path = self.tabs.current_path()
@@ -302,6 +325,21 @@ class MainWindow(QMainWindow):
         self.bottom_tabs.setVisible(True)
         self.act_toggle_bottom.setChecked(True)
         self.cph_panel.run_all()
+
+    def run_stress(self) -> None:
+        self.bottom_tabs.setCurrentWidget(self.stress_panel)
+        self.bottom_tabs.setVisible(True)
+        self.act_toggle_bottom.setChecked(True)
+        # 待测程序留空时默认填入当前文件
+        self.stress_panel.suggest_my_path(self.tabs.current_path())
+        self.stress_panel.start()
+
+    def _fill_stress_my(self) -> None:
+        path = self.tabs.current_path()
+        if path is None:
+            self.statusBar().showMessage("当前文件尚未保存，无法用作待测程序", 4000)
+            return
+        self.stress_panel.set_my_path(path)
 
     def _save_current_quietly(self) -> None:
         # 评测前把编辑器中的最新代码落盘（已有路径时不弹对话框）

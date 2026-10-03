@@ -12,6 +12,7 @@ from PyQt6.QtTest import QTest
 
 from lime.editor import tab_manager as tab_module
 from lime.ui.main_window import MainWindow
+from tests.conftest import wait_for
 
 
 @pytest.fixture
@@ -142,14 +143,22 @@ def test_switching_to_terminal_tab_starts_shell_and_focuses(window):
         window.terminal.stop_shell()
 
 
-def test_run_unsaved_prompts_save_cancel(window, monkeypatch):
-    # 另存为对话框被取消 -> 不运行
-    monkeypatch.setattr(
-        window.tabs,
-        "save_current",
-        lambda: False,
-    )
+def test_run_unsaved_creates_temp_cpp_and_runs(window, monkeypatch, tmp_path):
+    # 未命名文档直接写入临时文件运行，不打断用户
+    editor = window.tabs.current_editor()
+    editor.setPlainText("int main(){ return 0; }\n")
     assert window.tabs.current_path() is None
+    window.run_current()
+    assert window.output_panel.runner.is_running() is True
+    # 等待运行结束（编译+空输入直接结束）
+    wait_for(lambda: not window.output_panel.runner.is_running())
+    # 退出码 0 表示编译和运行都成功
+    assert "[已结束，退出码 0]" in window.output_panel.output_view.toPlainText()
+
+
+def test_run_unsaved_no_editor_does_nothing(window):
+    # 没有编辑器时不报错也不运行
+    window.tabs.close_tab(0)
     window.run_current()
     assert window.output_panel.runner.is_running() is False
 
